@@ -26,6 +26,7 @@ export function redactUntrusted(value: unknown): unknown {
       .replace(/github_pat_[A-Za-z0-9_]+/g, '[redacted-github-token]')
       .replace(/gh[opurs]_[A-Za-z0-9_]+/g, '[redacted-github-token]')
       .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*\b/g, '[redacted-jwt]')
+      .replace(/([?&](?:access_token|auth|token)=)[^&\s"'\\]+/gi, '$1[redacted-query-token]')
   }
   if (Array.isArray(value)) return value.map(redactUntrusted)
   if (value && typeof value === 'object') {
@@ -39,7 +40,7 @@ export function redactKnown(text: string, secrets: string[]): string {
   for (const secret of secrets) {
     if (secret) result = result.replaceAll(secret, '[redacted]')
   }
-  return result
+  return redactUntrusted(result) as string
 }
 
 export function status(event: string, fields: Record<string, unknown> = {}): void {

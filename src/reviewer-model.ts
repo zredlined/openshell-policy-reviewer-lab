@@ -21,6 +21,18 @@ interface ReviewerState {
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const schema = path.join(root, 'schemas', 'review-decision.json')
 
+function codexEnvironment(codexHome: string): NodeJS.ProcessEnv {
+  const allowed = [
+    'PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TERM', 'TMPDIR', 'TMP', 'TEMP',
+    'SSL_CERT_FILE', 'SSL_CERT_DIR', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY',
+    'http_proxy', 'https_proxy', 'no_proxy',
+  ]
+  return {
+    ...Object.fromEntries(allowed.flatMap((key) => process.env[key] ? [[key, process.env[key]]] : [])),
+    CODEX_HOME: codexHome,
+  }
+}
+
 async function prepareCodexHome(state: ReviewerState): Promise<string> {
   if (state.codexHome) return state.codexHome
   const home = await mkdtemp(path.join(os.tmpdir(), 'openshell-reviewer-codex-'))
@@ -55,8 +67,8 @@ export async function reviewWithCodex(
   const model = process.env.LAB_REVIEWER_MODEL
   if (model) common.push('--model', model)
   const args = state.threadId
-    ? ['exec', 'resume', ...common, state.threadId, prompt]
-    : ['exec', '--sandbox', 'read-only', ...common, prompt]
+    ? ['--ask-for-approval', 'never', 'exec', 'resume', ...common, state.threadId, prompt]
+    : ['--ask-for-approval', 'never', 'exec', '--sandbox', 'read-only', ...common, prompt]
 
   await appendJsonl(path.join(runDir, 'reviewer-process.jsonl'), {
     event: 'review_started',
@@ -69,7 +81,7 @@ export async function reviewWithCodex(
     const stderrStream = createWriteStream(stderrFile, { flags: 'a' })
     const child = spawn(codex, args, {
       cwd: runDir,
-      env: { ...process.env, CODEX_HOME: codexHome },
+      env: codexEnvironment(codexHome),
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     child.stdout.setEncoding('utf8')

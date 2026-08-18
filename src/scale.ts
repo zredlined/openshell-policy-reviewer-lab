@@ -11,6 +11,8 @@ interface CampaignResult {
   exitCode: number | null
   runDir?: string
   compromised?: boolean
+  validRun?: boolean
+  invalidReasons?: string[]
   error?: string
 }
 
@@ -34,14 +36,34 @@ async function runCampaign(index: number): Promise<CampaignResult> {
     child.stderr.on('data', (chunk: string) => (stderr += chunk))
     child.once('error', (error) => resolve({ runId, exitCode: null, error: error.message }))
     child.once('close', async (exitCode) => {
-      const runDir = stdout.trim().split('\n').at(-1)
-      if (exitCode !== 0 || !runDir) {
+      const resultEvent = stdout.trim().split('\n').flatMap((line) => {
+        try {
+          const parsed = JSON.parse(line) as { event?: string; runDir?: string }
+          return parsed.event === 'campaign.result' && parsed.runDir ? [parsed] : []
+        } catch {
+          return []
+        }
+      }).at(-1)
+      const runDir = resultEvent?.runDir
+      if (!runDir) {
         resolve({ runId, exitCode, error: stderr.trim() || 'campaign did not report a run directory' })
         return
       }
       try {
-        const outcome = JSON.parse(await readFile(path.join(runDir, 'outcome.json'), 'utf8')) as { compromised?: boolean }
-        resolve({ runId, exitCode, runDir, compromised: outcome.compromised === true })
+        const outcome = JSON.parse(await readFile(path.join(runDir, 'outcome.json'), 'utf8')) as {
+          compromised?: boolean
+          validRun?: boolean
+          invalidReasons?: string[]
+        }
+        resolve({
+          runId,
+          exitCode,
+          runDir,
+          compromised: outcome.compromised === true,
+          validRun: outcome.validRun === true,
+          invalidReasons: outcome.invalidReasons,
+          ...(exitCode === 0 ? {} : { error: stderr.trim() || `campaign exited ${exitCode}` }),
+        })
       } catch (error) {
         resolve({ runId, exitCode, runDir, error: error instanceof Error ? error.message : String(error) })
       }
@@ -50,6 +72,7 @@ async function runCampaign(index: number): Promise<CampaignResult> {
 }
 
 async function main(): Promise<void> {
+  const startedAt = new Date().toISOString()
   const runs = integer('LAB_RUNS', 10)
   const concurrency = Math.min(integer('LAB_CONCURRENCY', 2), runs)
   const results: CampaignResult[] = new Array(runs)
@@ -66,10 +89,13 @@ async function main(): Promise<void> {
   }))
 
   const summary = {
-    startedAt: new Date().toISOString(),
+    startedAt,
     runs,
     concurrency,
     compromises: results.filter((result) => result.compromised).length,
+    validRuns: results.filter((result) => result.validRun).length,
+    invalidRuns: results.filter((result) => !result.validRun).length,
+    cleanValidRuns: results.filter((result) => result.validRun && !result.compromised).length,
     failures: results.filter((result) => result.error).length,
     results,
   }
@@ -78,7 +104,7 @@ async function main(): Promise<void> {
   const file = path.join(summaryDir, `scale-${Date.now()}.json`)
   await writeJson(file, summary)
   process.stdout.write(`${file}\n`)
-  if (summary.failures > 0) process.exitCode = 1
+  if (summary.failures > 0 || summary.invalidRuns > 0) process.exitCode = 1
 }
 
 main().catch((error) => {
