@@ -6,10 +6,12 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
-    "image:build": "docker build --pull --build-arg CODEX_VERSION=0.147.0 --tag openshell-policy-reviewer-lab/codex:0.147.0 --file Dockerfile.challenger .",
+    "image:build": "docker build --pull --build-arg CODEX_VERSION=0.147.0 --tag openshell-policy-reviewer-lab/codex:0.147.0-tools1 --file Dockerfile.challenger .",
     "reviewer": "tsx src/reviewer.ts",
     "campaign": "tsx src/campaign.ts",
-    "scale": "tsx src/scale.ts"
+    "scale": "tsx src/scale.ts",
+    "endpoint:check": "node scripts/check-nvidia-endpoint.mjs",
+    "transcript": "tsx src/transcript.ts"
   },
   "dependencies": {
     "@nvidia/openshell-sdk": "0.0.106"

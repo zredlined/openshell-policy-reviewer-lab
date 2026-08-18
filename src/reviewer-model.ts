@@ -1,121 +1,123 @@
-import { spawn } from 'node:child_process'
-import { createWriteStream } from 'node:fs'
-import { copyFile, mkdtemp, readFile } from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
-import { createInterface } from 'node:readline'
-import { finished } from 'node:stream/promises'
-import { fileURLToPath } from 'node:url'
-import { appendJsonl } from './common.js'
+import { appendJsonl, redactUntrusted, writeJson } from './common.js'
 
 export interface ReviewDecision {
   decision: 'approve' | 'reject'
   reason: string
 }
 
-interface ReviewerState {
-  threadId?: string
-  codexHome?: string
+interface ConversationMessage {
+  role: 'user' | 'assistant'
+  content: string
 }
 
-const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
-const schema = path.join(root, 'schemas', 'review-decision.json')
-
-function codexEnvironment(codexHome: string): NodeJS.ProcessEnv {
-  const allowed = [
-    'PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TERM', 'TMPDIR', 'TMP', 'TEMP',
-    'SSL_CERT_FILE', 'SSL_CERT_DIR', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY',
-    'http_proxy', 'https_proxy', 'no_proxy',
-  ]
-  return {
-    ...Object.fromEntries(allowed.flatMap((key) => process.env[key] ? [[key, process.env[key]]] : [])),
-    CODEX_HOME: codexHome,
-  }
+export interface ReviewerState {
+  history: ConversationMessage[]
 }
 
-async function prepareCodexHome(state: ReviewerState): Promise<string> {
-  if (state.codexHome) return state.codexHome
-  const home = await mkdtemp(path.join(os.tmpdir(), 'openshell-reviewer-codex-'))
-  const authSource = process.env.LAB_CODEX_AUTH_FILE
-  if (!authSource) throw new Error('LAB_CODEX_AUTH_FILE is required for the reviewer')
-  await copyFile(authSource, path.join(home, 'auth.json'))
-  state.codexHome = home
-  return home
+interface ResponsesBody {
+  id?: string
+  model?: string
+  status?: string
+  output?: Array<{
+    type?: string
+    summary?: Array<{ type?: string; text?: string }>
+    content?: Array<{ type?: string; text?: string }>
+  }>
+  usage?: unknown
+  error?: { type?: string; code?: string; message?: string }
 }
 
-export async function reviewWithCodex(
+function outputText(body: ResponsesBody): string {
+  return (body.output ?? [])
+    .flatMap((item) => item.content ?? [])
+    .filter((item) => item.type === 'output_text' && typeof item.text === 'string')
+    .map((item) => item.text as string)
+    .join('\n')
+}
+
+function reasoningSummaries(body: ResponsesBody): string[] {
+  return (body.output ?? [])
+    .filter((item) => item.type === 'reasoning')
+    .flatMap((item) => item.summary ?? [])
+    .map((item) => item.text)
+    .filter((item): item is string => Boolean(item))
+}
+
+export async function reviewWithNvidia(
   runDir: string,
   state: ReviewerState,
+  baseInstructions: string,
   prompt: string,
   decisionNumber: number,
+  timeoutMs: number,
 ): Promise<ReviewDecision> {
-  const codexHome = await prepareCodexHome(state)
-  const trace = path.join(runDir, `reviewer-${String(decisionNumber).padStart(3, '0')}.jsonl`)
-  const stderrFile = path.join(runDir, `reviewer-${String(decisionNumber).padStart(3, '0')}.stderr.log`)
-  const decisionFile = path.join(runDir, `reviewer-${String(decisionNumber).padStart(3, '0')}.decision.json`)
-  const codex = process.env.LAB_CODEX_BIN ?? 'codex'
-  const common = [
-    '--json',
-    '--skip-git-repo-check',
-    '--ignore-user-config',
-    '--ignore-rules',
-    '--output-schema',
-    schema,
-    '--output-last-message',
-    decisionFile,
-  ]
-  const model = process.env.LAB_REVIEWER_MODEL
-  if (model) common.push('--model', model)
-  const args = state.threadId
-    ? ['--ask-for-approval', 'never', 'exec', 'resume', ...common, state.threadId, prompt]
-    : ['--ask-for-approval', 'never', 'exec', '--sandbox', 'read-only', ...common, prompt]
+  const apiKey = process.env.LAB_NVIDIA_API_KEY
+  if (!apiKey) throw new Error('LAB_NVIDIA_API_KEY is required for the reviewer')
+  const model = process.env.LAB_MODEL ?? 'openai/openai/gpt-5.6-sol'
+  const reasoning = process.env.LAB_REASONING ?? 'high'
+  const url = process.env.NVIDIA_RESPONSES_URL ?? 'https://inference-api.nvidia.com/v1/responses'
+  const request = {
+    model,
+    input: [
+      { role: 'developer', content: baseInstructions },
+      ...state.history,
+      { role: 'user', content: prompt },
+    ],
+    reasoning: { effort: reasoning, summary: 'detailed' },
+    text: {
+      format: {
+        type: 'json_schema',
+        name: 'review_decision',
+        strict: true,
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['decision', 'reason'],
+          properties: {
+            decision: { type: 'string', enum: ['approve', 'reject'] },
+            reason: { type: 'string', minLength: 1 },
+          },
+        },
+      },
+    },
+    max_output_tokens: 2048,
+  }
 
   await appendJsonl(path.join(runDir, 'reviewer-process.jsonl'), {
     event: 'review_started',
     decisionNumber,
-    resumedThread: state.threadId ?? null,
+    model,
+    reasoning,
+    priorMessages: state.history.length,
   })
-
-  await new Promise<void>((resolve, reject) => {
-    const traceStream = createWriteStream(trace, { flags: 'a' })
-    const stderrStream = createWriteStream(stderrFile, { flags: 'a' })
-    const child = spawn(codex, args, {
-      cwd: runDir,
-      env: codexEnvironment(codexHome),
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-    child.stdout.setEncoding('utf8')
-    child.stderr.setEncoding('utf8')
-    child.stdout.pipe(traceStream)
-    child.stderr.pipe(stderrStream)
-    const lines = createInterface({ input: child.stdout })
-    lines.on('line', (line) => {
-      if (!line.trim()) return
-      try {
-        const event = JSON.parse(line) as Record<string, unknown>
-        const threadId = event.thread_id ?? event.threadId
-        if (event.type === 'thread.started' && typeof threadId === 'string') state.threadId = threadId
-      } catch {
-        // Preserve malformed/non-JSON output in the trace; the decision file is authoritative.
-      }
-    })
-    child.once('error', reject)
-    child.once('close', async (code) => {
-      try {
-        await Promise.all([finished(traceStream), finished(stderrStream)])
-        if (code === 0) resolve()
-        else reject(new Error(`reviewer Codex exited ${code}`))
-      } catch (error) {
-        reject(error)
-      }
-    })
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+    signal: AbortSignal.timeout(Math.max(1, timeoutMs)),
   })
-
-  const parsed = JSON.parse(await readFile(decisionFile, 'utf8')) as Partial<ReviewDecision>
-  if ((parsed.decision !== 'approve' && parsed.decision !== 'reject') || typeof parsed.reason !== 'string') {
-    throw new Error(`invalid reviewer decision: ${JSON.stringify(parsed)}`)
+  const body = (await response.json().catch(() => ({}))) as ResponsesBody
+  await writeJson(path.join(runDir, `reviewer-${String(decisionNumber).padStart(3, '0')}.response.json`), redactUntrusted(body))
+  if (!response.ok) {
+    throw new Error(`NVIDIA Responses HTTP ${response.status}: ${body.error?.message ?? 'unknown error'}`)
   }
-  return { decision: parsed.decision, reason: parsed.reason }
-}
 
-export type { ReviewerState }
+  const text = outputText(body)
+  const parsed = JSON.parse(text) as Partial<ReviewDecision>
+  if ((parsed.decision !== 'approve' && parsed.decision !== 'reject') || typeof parsed.reason !== 'string' || !parsed.reason) {
+    throw new Error(`invalid reviewer decision: ${text}`)
+  }
+  const decision = { decision: parsed.decision, reason: parsed.reason }
+  state.history.push({ role: 'user', content: prompt }, { role: 'assistant', content: JSON.stringify(decision) })
+  await appendJsonl(path.join(runDir, 'reviewer-process.jsonl'), {
+    event: 'review_completed',
+    decisionNumber,
+    responseId: body.id ?? null,
+    returnedModel: body.model ?? null,
+    responseStatus: body.status ?? null,
+    reasoningSummaries: reasoningSummaries(body),
+    usage: body.usage ?? null,
+  })
+  return decision
+}

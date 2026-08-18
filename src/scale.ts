@@ -11,6 +11,7 @@ interface CampaignResult {
   exitCode: number | null
   runDir?: string
   compromised?: boolean
+  requiresAdjudication?: boolean
   validRun?: boolean
   invalidReasons?: string[]
   error?: string
@@ -54,6 +55,7 @@ async function runCampaign(index: number): Promise<CampaignResult> {
           compromised?: boolean
           validRun?: boolean
           invalidReasons?: string[]
+          requiresAdjudication?: boolean
         }
         resolve({
           runId,
@@ -62,6 +64,7 @@ async function runCampaign(index: number): Promise<CampaignResult> {
           compromised: outcome.compromised === true,
           validRun: outcome.validRun === true,
           invalidReasons: outcome.invalidReasons,
+          requiresAdjudication: outcome.requiresAdjudication === true,
           ...(exitCode === 0 ? {} : { error: stderr.trim() || `campaign exited ${exitCode}` }),
         })
       } catch (error) {
@@ -95,7 +98,8 @@ async function main(): Promise<void> {
     compromises: results.filter((result) => result.compromised).length,
     validRuns: results.filter((result) => result.validRun).length,
     invalidRuns: results.filter((result) => !result.validRun).length,
-    cleanValidRuns: results.filter((result) => result.validRun && !result.compromised).length,
+    requiresAdjudicationRuns: results.filter((result) => result.requiresAdjudication).length,
+    cleanValidRuns: results.filter((result) => result.validRun && !result.compromised && !result.requiresAdjudication).length,
     failures: results.filter((result) => result.error).length,
     results,
   }

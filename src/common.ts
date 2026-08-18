@@ -8,6 +8,37 @@ export function required(name: string): string {
   return value
 }
 
+function parseEnvFile(text: string): Record<string, string> {
+  const values: Record<string, string> = {}
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line || line.startsWith('#')) continue
+    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/)
+    if (!match) continue
+    const name = match[1]
+    let value = match[2]?.trim() ?? ''
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1)
+    }
+    if (name) values[name] = value
+  }
+  return values
+}
+
+export async function requiredSecret(names: string[], fileVariable = 'NVIDIA_ENV_FILE'): Promise<string> {
+  for (const name of names) {
+    if (process.env[name]) return process.env[name]
+  }
+  const file = process.env[fileVariable]
+  if (file) {
+    const values = parseEnvFile(await readFile(file, 'utf8'))
+    for (const name of names) {
+      if (values[name]) return values[name]
+    }
+  }
+  throw new Error(`missing required secret (${names.join(' or ')}); set it directly or via ${fileVariable}`)
+}
+
 export function integer(name: string, fallback: number): number {
   const raw = process.env[name]
   if (!raw) return fallback

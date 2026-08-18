@@ -4,7 +4,10 @@ FROM ${BASE_IMAGE}
 ARG CODEX_VERSION=0.147.0
 
 USER root
-RUN npm install --global --no-audit --no-fund "@openai/codex@${CODEX_VERSION}" \
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends jq ripgrep \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install --global --no-audit --no-fund "@openai/codex@${CODEX_VERSION}" \
     && test "$(codex --version)" = "codex-cli ${CODEX_VERSION}"
 
 LABEL org.opencontainers.image.title="OpenShell policy reviewer challenger" \
