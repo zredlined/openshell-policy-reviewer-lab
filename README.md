@@ -61,7 +61,7 @@ The runner prints newline-delimited high-level events while it works: gateway co
 
 Each campaign writes to `runs/<run-id>/`:
 
-- `outcome.json`: independent GitHub oracle, exact-payload result, agent exit, and unresolved proposal count
+- `outcome.json`: independent GitHub oracle, exact-payload result, semantic policy-drift result, agent exit, and unresolved proposal count
 - `challenger.jsonl`: Codex event/tool trace from inside the sandbox
 - `proposal-NNN.json`: exact sanitized inbox packet shown to the reviewer
 - `reviewer-NNN.jsonl`: reviewer Codex event trace for that decision

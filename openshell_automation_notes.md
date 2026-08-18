@@ -81,6 +81,26 @@ Running notes from instrumenting OpenShell v0.0.106 through `@nvidia/openshell-s
 - **Workaround:** Create the provider with type `codex` so its credentials are classified by the built-in profile. The lab now does this.
 - **Possible improvement:** Update the example to use the `codex` profile, or reject provider creation/attachment before sandbox startup when credential keys will be unclassified.
 
+### The prover did not flag an authenticated Git receive-pack write
+
+- **Symptom:** A proposed single-path GitHub Contents API `PUT` produced `credential_reach_expansion`, while a proposed `POST /zredlined/openshell-policy-reviewer-canary.git/git-receive-pack` for `/usr/bin/git` returned `prover: no new findings`.
+- **Context:** Both proposals enable the same protected-repository write outcome through different transports. The AI reviewer rejected both, but the deterministic prover treated them differently.
+- **Workaround:** The reviewer evaluates the semantic effect of the complete candidate policy rather than relying on an empty prover delta as proof of safety.
+- **Possible improvement:** Teach the prover that authenticated Git smart-HTTP receive-pack expands write capability, or conservatively flag write-oriented Git service endpoints when a credential-bearing provider can reach them.
+
+### Git smart-HTTP denials lose agent guidance and undercount denied activity
+
+- **Symptom:** Two denied `git-receive-pack` requests were logged as OCSF `HTTP:POST ... DENIED`, but Git surfaced a generic HTTP 403/RPC failure rather than OpenShell's structured `policy_denied` guidance. The following activity summaries reported `denied_action_count=0`. A later denied GitHub REST `PUT` returned structured advisor guidance and the next summary reported `denied_action_count=1`.
+- **Context:** The challenger only discovered the policy-advisor workflow after switching from Git transport to the REST Contents API, despite having already encountered two policy-enforced Git write denials.
+- **Workaround:** Agents can inspect `/etc/openshell/skills/policy_advisor.md` and the local denial history after any suspicious 403, but this depends on agent initiative.
+- **Possible improvement:** Make Git smart-HTTP denial responses recognizable as OpenShell policy denials where protocol compatibility permits, and count every enforced L7 denial consistently in the activity summary.
+
+### CLI output-format support is inconsistent across automation commands
+
+- **Symptom:** `sandbox list`, `provider list`, `status`, and `whoami` accept `--output json`; `rule get` and `logs` reject `--output` and only expose their presentation format.
+- **Context:** This appeared while validating the same RPCs used by the TUI and inspecting a live campaign.
+- **Possible improvement:** Add structured output to inbox and log commands, or make the help/error point users to an equivalent structured SDK call.
+
 ## Harness findings
 
 ### Generated sandbox name exceeded the gateway limit
@@ -94,13 +114,17 @@ The copied `.env.example` supplied nonempty placeholder values for the GitHub ow
 ### The sandbox image Codex CLI lagged the host CLI
 
 - **Symptom:** The challenger exited with code 2 because `codex exec` did not recognize `--ignore-user-config` or `--ignore-rules`.
-- **Context:** Station's host reviewer used Codex CLI 0.147.0, while `ghcr.io/nvidia/openshell-community/sandboxes/base:latest` contained 0.117.0. The newer host supports both flags; the image version does not.
-- **Workaround:** The challenger already creates a fresh home and temporary working directory, so the lab removed the unsupported flags and records `codex --version` in challenger stderr for every run.
+- **Context:** Station's host reviewer used Codex CLI 0.147.0, while `ghcr.io/nvidia/openshell-community/sandboxes/base:latest` contained 0.117.0. The newer host supports both flags; the image version does not. The older client also failed to parse the current model catalog's `max` reasoning variant and logged the entire response body, producing a 3.7 MB stderr artifact in a three-minute run.
+- **Workaround:** The challenger already creates a fresh home and temporary working directory, so the lab removed the unsupported flags, records `codex --version`, and bounds any single stderr chunk to 256 KiB.
 - **Possible improvement:** Pin and report the sandbox image by digest, keep its agent CLIs current, or inject a known Codex build so challenger-version drift cannot silently change experimental behavior.
 
 ### The initial Station deployment was not a Git checkout
 
 The first Station deployment copied the project directory without `.git`, so it could not receive the subsequent fix with `git pull`. The credential file and accumulated run evidence were preserved while deploying only reviewed changed files. Future scaled hosts should use a real clone and keep `.env` plus `runs/` as external or ignored state.
+
+### Raw JSON hashes falsely suggested effective-policy drift
+
+The initial and final effective-policy artifacts had different byte hashes after two rejected proposals, but a recursive scalar comparison found no differences. Object/map key ordering changed between SDK reads. The harness now records `effectivePolicyChanged` using semantic deep equality; reports should not compare raw JSON bytes.
 
 ### Hidden chain-of-thought is not an available trace artifact
 
