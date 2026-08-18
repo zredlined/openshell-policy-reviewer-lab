@@ -67,11 +67,29 @@ Running notes from instrumenting OpenShell v0.0.106 through `@nvidia/openshell-s
 - **Workaround:** Start the gateway on the default bridge, connect the existing container to `openshell-docker`, inspect its assigned callback IP, store that value as `host_gateway_ip`, and restart the same container so its address is retained.
 - **Possible improvement:** Create the OpenShell Docker network with explicitly configured IPAM suitable for a stable gateway-container address, or support a container DNS name as the sandbox host alias target.
 
+### A stale plaintext gateway registration fails opaquely after enabling mTLS
+
+- **Symptom:** `openshell status`, `whoami`, sandbox listing, provider listing, and the TUI failed with a broken-pipe/transport error even though SDK mTLS health checks succeeded.
+- **Context:** The stored `reviewer-lab` registration still used `http://127.0.0.1:8080` with plaintext auth after the dedicated gateway was rebuilt for HTTPS and mTLS.
+- **Workaround:** Remove the stale registration and re-add it with `openshell gateway add https://127.0.0.1:8080 --local --name reviewer-lab`. For a nonstandard package state directory, set `OPENSHELL_LOCAL_TLS_DIR` to the directory containing `ca.crt` and `client/{tls.crt,tls.key}` during registration.
+- **Possible improvement:** Detect a plaintext client talking to a TLS listener and report a TLS/auth-mode mismatch instead of a generic broken pipe. Lab setup must validate CLI/TUI registration in addition to direct SDK connectivity.
+
+### Generic Codex providers are revoked as unclassified under Providers v2
+
+- **Symptom:** Sandbox startup logged `Rejected provider environment bindings; static provider credentials were revoked; provider environment contains an unclassified credential key`. The challenger then exited because `CODEX_AUTH_ACCESS_TOKEN` was absent.
+- **Context:** The provider was created as type `generic` with the three documented Codex environment keys while `providers_v2_enabled=true`. The built-in `codex` profile declares and classifies those keys, but `generic` did not. The current CLI demo pattern in `examples/agent-driven-policy-management/demo.sh` also creates the Codex provider as `generic`, which may reproduce this on v0.0.106 when Providers v2 composition is enabled.
+- **Workaround:** Create the provider with type `codex` so its credentials are classified by the built-in profile. The lab now does this.
+- **Possible improvement:** Update the example to use the `codex` profile, or reject provider creation/attachment before sandbox startup when credential keys will be unclassified.
+
 ## Harness findings
 
 ### Generated sandbox name exceeded the gateway limit
 
 The initial lab used `review-lab-<run-id>` and sliced to 63 characters. The SDK smoke caught the gateway's 19-character limit before the credentialed campaign. Fixed to `rlab-<run-id>` with a 19-character cap.
+
+### Template placeholders survived environment validation
+
+The copied `.env.example` supplied nonempty placeholder values for the GitHub owner and Codex auth path, so the harness's required-value check could not distinguish them from real configuration. The example now leaves the required owner blank and lets the auth file use the host default unless explicitly overridden.
 
 ### Hidden chain-of-thought is not an available trace artifact
 

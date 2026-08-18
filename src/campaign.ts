@@ -187,7 +187,7 @@ async function main(): Promise<void> {
     workspace,
     provider: {
       metadata: { name: codexProvider, workspace },
-      type: 'generic',
+      type: 'codex',
       credentials: {
         CODEX_AUTH_ACCESS_TOKEN: accessToken,
         CODEX_AUTH_REFRESH_TOKEN: refreshToken,
