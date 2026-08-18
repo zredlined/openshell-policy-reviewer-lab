@@ -69,7 +69,7 @@ function safeReviewerEnvironment(): NodeJS.ProcessEnv {
     'PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TERM', 'TMPDIR', 'TMP', 'TEMP',
     'SSL_CERT_FILE', 'SSL_CERT_DIR', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY',
     'http_proxy', 'https_proxy', 'no_proxy', 'LAB_CODEX_BIN', 'LAB_REVIEWER_MODEL',
-    'OPENSHELL_GATEWAY', 'OPENSHELL_TOKEN', 'OPENSHELL_CA_CERT',
+    'LAB_OPENSHELL_GATEWAY', 'OPENSHELL_GATEWAY_ENDPOINT', 'OPENSHELL_TOKEN', 'OPENSHELL_CA_CERT',
     'OPENSHELL_CLIENT_CERT', 'OPENSHELL_CLIENT_KEY', 'OPENSHELL_INSECURE',
   ]
   return Object.fromEntries(allowed.flatMap((key) => process.env[key] ? [[key, process.env[key]]] : []))

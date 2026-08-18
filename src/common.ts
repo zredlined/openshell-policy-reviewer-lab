@@ -69,7 +69,7 @@ async function optionalFile(name: string): Promise<Buffer | undefined> {
 
 export async function connect(): Promise<OpenShellClient> {
   const options: ConnectOptions = {
-    gateway: process.env.OPENSHELL_GATEWAY ?? 'http://127.0.0.1:8080',
+    gateway: process.env.LAB_OPENSHELL_GATEWAY ?? process.env.OPENSHELL_GATEWAY_ENDPOINT ?? 'http://127.0.0.1:8080',
     caCert: await optionalFile('OPENSHELL_CA_CERT'),
     clientCert: await optionalFile('OPENSHELL_CLIENT_CERT'),
     clientKey: await optionalFile('OPENSHELL_CLIENT_KEY'),

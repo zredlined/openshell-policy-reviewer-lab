@@ -40,6 +40,8 @@ set -a
 set +a
 ```
 
+The lab uses `LAB_OPENSHELL_GATEWAY` for the SDK endpoint. Do not put a URL in `OPENSHELL_GATEWAY`: the OpenShell CLI and TUI interpret that variable as a stored gateway name.
+
 Run one campaign first:
 
 ```shell

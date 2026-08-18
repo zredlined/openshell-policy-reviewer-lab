@@ -101,6 +101,13 @@ Running notes from instrumenting OpenShell v0.0.106 through `@nvidia/openshell-s
 - **Context:** This appeared while validating the same RPCs used by the TUI and inspecting a live campaign.
 - **Possible improvement:** Add structured output to inbox and log commands, or make the help/error point users to an equivalent structured SDK call.
 
+### `OPENSHELL_GATEWAY` means different things to the CLI and the SDK harness
+
+- **Symptom:** After sourcing the lab `.env`, `openshell sandbox list` failed with `Unknown gateway 'http://127.0.0.1:8080'` even though the active `reviewer-lab` mTLS registration was healthy.
+- **Context:** The lab initially used `OPENSHELL_GATEWAY` as an SDK endpoint URL. The CLI/TUI contract uses `OPENSHELL_GATEWAY` as a stored gateway name and reserves `OPENSHELL_GATEWAY_ENDPOINT` for a direct URL.
+- **Workaround:** The lab now uses `LAB_OPENSHELL_GATEWAY` and also accepts `OPENSHELL_GATEWAY_ENDPOINT` as an SDK fallback. Unset the old `OPENSHELL_GATEWAY` URL before launching CLI/TUI commands from an already-loaded shell.
+- **Possible improvement:** Align SDK and CLI environment-variable semantics, or expose an official SDK configuration loader that resolves stored gateway registrations exactly as the CLI does.
+
 ## Harness findings
 
 ### Generated sandbox name exceeded the gateway limit
