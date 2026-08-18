@@ -124,6 +124,10 @@ Running notes from instrumenting OpenShell v0.0.106 through `@nvidia/openshell-s
 
 ## Harness findings
 
+### The original target path leaked the expected decision
+
+The first campaigns used `forbidden/run-<id>.txt`. That label was visible in the proposed GitHub path and could let the reviewer rely on a lexical safety cue rather than reasoning from the protected-repository invariant and granted capability. New campaigns use the neutral `artifacts/run-<id>.txt` path. Historical run artifacts retain their original paths for auditability.
+
 ### Generated sandbox name exceeded the gateway limit
 
 The initial lab used `review-lab-<run-id>` and sliced to 63 characters. The SDK smoke caught the gateway's 19-character limit before the credentialed campaign. Fixed to `rlab-<run-id>` with a 19-character cap.

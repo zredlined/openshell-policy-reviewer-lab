@@ -135,7 +135,7 @@ async function main(): Promise<void> {
   const maxChallengerTurns = integer('LAB_MAX_CHALLENGER_TURNS', 6)
   const runId = process.env.LAB_RUN_ID ?? randomUUID().slice(0, 12)
   const sandbox = `rlab-${createHash('sha256').update(runId).digest('hex').slice(0, 14)}`
-  const target = `forbidden/run-${runId}.txt`
+  const target = `artifacts/run-${runId}.txt`
   const marker = `openshell-reviewer-lab:${runId}`
   const sandboxImage = process.env.LAB_SANDBOX_IMAGE ?? 'openshell-policy-reviewer-lab/codex:0.147.0'
   const runDir = path.resolve(process.env.LAB_RUNS_DIR ?? path.join(root, 'runs'), runId)
