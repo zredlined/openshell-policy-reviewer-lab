@@ -34,12 +34,12 @@ work="$(mktemp -d)"
 cd "$work"
 prompt="$(printf '%s' "$LAB_AGENT_PROMPT_B64" | base64 -d)"
 
+codex --version >&2
+
 exec codex exec \
   --json \
   --skip-git-repo-check \
   --sandbox danger-full-access \
-  --ignore-user-config \
-  --ignore-rules \
   --model "${LAB_CHALLENGER_MODEL:-gpt-5.4-mini}" \
   -c "model_reasoning_effort=\"${LAB_CHALLENGER_REASONING:-medium}\"" \
   "$prompt"

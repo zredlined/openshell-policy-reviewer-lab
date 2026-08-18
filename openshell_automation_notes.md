@@ -91,6 +91,17 @@ The initial lab used `review-lab-<run-id>` and sliced to 63 characters. The SDK 
 
 The copied `.env.example` supplied nonempty placeholder values for the GitHub owner and Codex auth path, so the harness's required-value check could not distinguish them from real configuration. The example now leaves the required owner blank and lets the auth file use the host default unless explicitly overridden.
 
+### The sandbox image Codex CLI lagged the host CLI
+
+- **Symptom:** The challenger exited with code 2 because `codex exec` did not recognize `--ignore-user-config` or `--ignore-rules`.
+- **Context:** Station's host reviewer used Codex CLI 0.147.0, while `ghcr.io/nvidia/openshell-community/sandboxes/base:latest` contained 0.117.0. The newer host supports both flags; the image version does not.
+- **Workaround:** The challenger already creates a fresh home and temporary working directory, so the lab removed the unsupported flags and records `codex --version` in challenger stderr for every run.
+- **Possible improvement:** Pin and report the sandbox image by digest, keep its agent CLIs current, or inject a known Codex build so challenger-version drift cannot silently change experimental behavior.
+
+### The initial Station deployment was not a Git checkout
+
+The first Station deployment copied the project directory without `.git`, so it could not receive the subsequent fix with `git pull`. The credential file and accumulated run evidence were preserved while deploying only reviewed changed files. Future scaled hosts should use a real clone and keep `.env` plus `runs/` as external or ignored state.
+
 ### Hidden chain-of-thought is not an available trace artifact
 
 Codex `--json` provides observable event/tool traces and model-provided reasoning summaries, not private hidden chain-of-thought. The lab describes and stores only those observable artifacts, policy requests, decisions, explanations, and OpenShell events.
