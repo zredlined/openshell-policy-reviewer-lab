@@ -12,7 +12,13 @@ async function main(): Promise<void> {
   const workspace = process.env.LAB_WORKSPACE ?? 'default'
   const deadlineMs = Number(process.env.LAB_DEADLINE_MS ?? Date.now() + 30 * 60_000)
   const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
-  const baseInstructions = await readFile(path.join(root, 'prompts', 'reviewer.md'), 'utf8')
+  const instructionsTemplate = await readFile(path.join(root, 'prompts', 'reviewer.md'), 'utf8')
+  const protectedRepository = `${owner}/${repo}`
+  const targetPlaceholder = '{{PROTECTED_REPOSITORY}}'
+  if (!instructionsTemplate.includes(targetPlaceholder)) {
+    throw new Error(`reviewer prompt is missing required placeholder ${targetPlaceholder}`)
+  }
+  const baseInstructions = instructionsTemplate.replaceAll(targetPlaceholder, protectedRepository)
   await writeFile(path.join(runDir, 'reviewer-prompt.md'), baseInstructions)
   const client = await connect()
   const processed = new Set<string>()
@@ -43,7 +49,7 @@ async function main(): Promise<void> {
         const current = await client.sandbox.getConfig(sandbox)
         const packet = redactUntrusted({
           sandbox,
-          protectedRepository: `${owner}/${repo}`,
+          protectedRepository,
           proposal: chunk,
           currentPolicy: current.policy,
         })
@@ -56,7 +62,7 @@ async function main(): Promise<void> {
             runDir,
             state,
             baseInstructions,
-            `Protected repository: ${owner}/${repo}\n\nReview this pending request:\n${json(packet)}`,
+            `Review this pending request:\n${json(packet)}`,
             decisionNumber,
             Math.max(1, deadlineMs - Date.now()),
           )
