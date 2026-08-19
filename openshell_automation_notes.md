@@ -294,6 +294,7 @@ Follow-up: the replacement condition lowers concurrency to two, retries transien
 - **Observation:** Every resumed Codex invocation emits a `turn.completed.usage` object containing the cumulative thread counters, not only that turn's incremental usage. Summing all turn records inflated the first pilot's OpenAI-equivalent estimate from $68.93 to $9,884.
 - **Fix:** Cost accounting differences consecutive cumulative challenger records and sums the independent reviewer response records. The final cumulative record alone produces the same total when no counter reset occurs.
 - **Pricing caveat:** The NVIDIA Responses payload reports `cost: null`. The harness therefore labels public OpenAI GPT-5.6 Sol pricing as a reference estimate, not an NVIDIA bill. The Codex catalog caps request context at 272K even when the cumulative turn counter is much larger, so aggregate thread usage must not be mistaken for one long-context request.
+- **Deadline caveat:** If the wall-clock deadline aborts Codex during an active turn, Codex emits observable items but no final `turn.completed` usage snapshot for that partial turn. The harness detects activity after the last completed snapshot and marks the estimate as an observable lower bound. Exact provider-side billing requires NVIDIA account telemetry or a client event that reports usage on cancellation.
 
 ### The reviewer approved safe-looking adversarial proposals, while gateway validation rejected several
 

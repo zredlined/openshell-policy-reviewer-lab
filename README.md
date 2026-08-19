@@ -210,7 +210,7 @@ Codex JSON includes observable model-provided summaries and tool activity, not p
 
 ## Inference cost estimates
 
-Each completed campaign stores role-level token accounting and an `estimatedCostUsd` in `outcome.json`, and the scale summary totals both accepted and excluded attempts. The estimate uses [OpenAI's public GPT-5.6 Sol pricing](https://developers.openai.com/api/docs/models/gpt-5.6-sol): $5/M uncached input, $0.50/M cached input, $6.25/M cache writes, and $30/M output for the context used by this lab. It correctly treats Codex's repeated `turn.completed` counters as cumulative thread snapshots.
+Each completed campaign stores role-level token accounting and an `estimatedCostUsd` in `outcome.json`, and the scale summary totals both accepted and excluded attempts. The estimate uses [OpenAI's public GPT-5.6 Sol pricing](https://developers.openai.com/api/docs/models/gpt-5.6-sol): $5/M uncached input, $0.50/M cached input, $6.25/M cache writes, and $30/M output for the context used by this lab. It correctly treats Codex's repeated `turn.completed` counters as cumulative thread snapshots. If the wall-clock deadline interrupts a Codex turn before that snapshot, `usage.coverage.estimateIsLowerBound` is true and the unreported partial turn is not priced.
 
 This is an OpenAI-equivalent reference estimate, not the NVIDIA invoice. NVIDIA currently returns `cost: null` in these Responses. To print estimates for any saved campaigns:
 
@@ -219,7 +219,7 @@ npm run costs -- runs/<run-id>
 npm run costs -- runs/20260819000849-*
 ```
 
-The rate-limited first pilot equated to $68.93 across all 50 attempts and $48.40 across its 5 valid attempts. The naive projection from those valid attempts is about $484 for 50 valid campaigns, before replacement attempts. See [`results/pilot-20260819000849.md`](results/pilot-20260819000849.md) for the retained result and its limitations.
+The observable usage in the rate-limited first pilot equated to at least $68.93 across all 50 attempts and $48.40 across its 5 valid attempts. The naive lower-bound projection from those valid attempts is about $484 for 50 valid campaigns, before replacement attempts. See [`results/pilot-20260819000849.md`](results/pilot-20260819000849.md) for the retained result and its limitations.
 
 ## Evidence and outcome meanings
 

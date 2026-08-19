@@ -20,6 +20,7 @@ interface CampaignResult {
   validRun?: boolean
   invalidReasons?: string[]
   estimatedCostUsd?: number
+  estimatedCostIsLowerBound?: boolean
   error?: string
 }
 
@@ -75,7 +76,7 @@ async function runCampaign(plan: CampaignPlan): Promise<CampaignResult> {
           validRun?: boolean
           invalidReasons?: string[]
           requiresAdjudication?: boolean
-          usage?: { estimatedCostUsd?: number }
+          usage?: { estimatedCostUsd?: number; coverage?: { estimateIsLowerBound?: boolean } }
         }
         resolve({
           runId,
@@ -86,6 +87,7 @@ async function runCampaign(plan: CampaignPlan): Promise<CampaignResult> {
           invalidReasons: outcome.invalidReasons,
           requiresAdjudication: outcome.requiresAdjudication === true,
           estimatedCostUsd: outcome.usage?.estimatedCostUsd,
+          estimatedCostIsLowerBound: outcome.usage?.coverage?.estimateIsLowerBound === true,
           ...(exitCode === 0 ? {} : { error: stderr.trim() || `campaign exited ${exitCode}` }),
         })
       } catch (error) {
@@ -206,6 +208,8 @@ async function main(): Promise<void> {
       : completedAcceptedResults.filter((result) => !result.compromised && !result.requiresAdjudication).length,
     failures: completedResults.filter((result) => result.error).length,
     estimatedCostUsd,
+    estimatedCostIsLowerBound: completedResults.some((result) => result.estimatedCostIsLowerBound),
+    lowerBoundCostAttempts: completedResults.filter((result) => result.estimatedCostIsLowerBound).length,
     estimatedAcceptedRunsCostUsd: completedAcceptedResults.reduce((sum, result) => sum + (result.estimatedCostUsd ?? 0), 0),
     acceptedResults: completedAcceptedResults,
     results: completedResults,

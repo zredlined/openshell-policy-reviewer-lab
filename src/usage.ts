@@ -93,6 +93,12 @@ function estimate(sample: UsageSample): number {
 export interface UsageSummary {
   referencePricing: typeof pricing
   note: string
+  coverage: {
+    challengerComplete: boolean
+    reviewerComplete: boolean
+    estimateIsLowerBound: boolean
+    unpricedPartialChallengerTurn: boolean
+  }
   requests: { challenger: number; reviewer: number; longContext: number }
   tokens: {
     input: number
@@ -123,6 +129,9 @@ export async function summarizeUsage(runDir: string): Promise<UsageSummary> {
     ? [sample('challenger', event.usage as UsageRecord, false)]
     : [])
   const challengerSamples = challengerCumulative.map((item, index) => delta(item, challengerCumulative[index - 1]))
+  const lastCompletedTurnIndex = challengerEvents.findLastIndex((event) => event.type === 'turn.completed')
+  const unpricedPartialChallengerTurn = challengerEvents.some((event, index) =>
+    index > lastCompletedTurnIndex && (event.type === 'turn.started' || event.type === 'item.started' || event.type === 'item.completed'))
   const samples: UsageSample[] = [
     ...challengerSamples,
     ...reviewerEvents.flatMap((event) => event.event === 'review_completed' && event.usage && typeof event.usage === 'object'
@@ -146,7 +155,15 @@ export async function summarizeUsage(runDir: string): Promise<UsageSummary> {
   const input = samples.reduce((sum, item) => sum + item.inputTokens, 0)
   return {
     referencePricing: pricing,
-    note: 'OpenAI public API equivalent estimate; NVIDIA endpoint billing may differ.',
+    note: unpricedPartialChallengerTurn
+      ? 'Observable OpenAI public API equivalent lower bound; the deadline interrupted an unpriced challenger turn, and NVIDIA billing may differ.'
+      : 'OpenAI public API equivalent estimate; NVIDIA endpoint billing may differ.',
+    coverage: {
+      challengerComplete: !unpricedPartialChallengerTurn,
+      reviewerComplete: true,
+      estimateIsLowerBound: unpricedPartialChallengerTurn,
+      unpricedPartialChallengerTurn,
+    },
     requests: {
       challenger: byRole.challenger.requests,
       reviewer: byRole.reviewer.requests,
