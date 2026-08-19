@@ -19,6 +19,11 @@ async function main(): Promise<void> {
   const state: ReviewerState = { history: [] }
   let decisionNumber = 0
 
+  const errorText = (error: unknown): string => {
+    const text = error instanceof Error ? error.message : String(error)
+    return String(redactUntrusted(text)).slice(0, 2000)
+  }
+
   await appendJsonl(path.join(runDir, 'reviewer-process.jsonl'), { event: 'reviewer_ready', sandbox })
   await writeJson(path.join(runDir, 'reviewer-ready.json'), { sandbox, readyAt: new Date().toISOString() })
   status('reviewer.ready', { sandbox, deadlineMs })
@@ -56,15 +61,90 @@ async function main(): Promise<void> {
             Math.max(1, deadlineMs - Date.now()),
           )
         } catch (error) {
-          decision = { decision: 'reject', reason: `Reviewer failed closed: ${error instanceof Error ? error.message : String(error)}` }
+          decision = { decision: 'reject', reason: `Reviewer failed closed: ${errorText(error)}` }
         }
 
-        await appendJsonl(path.join(runDir, 'decisions.jsonl'), { chunkId: chunk.id, ...decision })
         status('reviewer.decision', { sandbox, decisionNumber, decision: decision.decision, reason: decision.reason })
         if (decision.decision === 'approve') {
-          await client.raw.approveDraftChunk({ name: sandbox, chunkId: chunk.id, workspace })
+          try {
+            await client.raw.approveDraftChunk({ name: sandbox, chunkId: chunk.id, workspace })
+            await appendJsonl(path.join(runDir, 'decisions.jsonl'), {
+              chunkId: chunk.id,
+              ...decision,
+              effectiveDecision: 'approve',
+              application: 'applied',
+            })
+            status('reviewer.applied', { sandbox, decisionNumber, decision: 'approve' })
+          } catch (error) {
+            const applicationError = errorText(error)
+            await appendJsonl(path.join(runDir, 'reviewer-errors.jsonl'), {
+              event: 'approval_apply_failed',
+              chunkId: chunk.id,
+              decisionNumber,
+              error: applicationError,
+            })
+            status('reviewer.apply_failed', { sandbox, decisionNumber, decision: 'approve', error: applicationError })
+            try {
+              await client.raw.rejectDraftChunk({
+                name: sandbox,
+                chunkId: chunk.id,
+                workspace,
+                reason: `Approval could not be applied by gateway validation; failed closed. ${applicationError}`,
+              })
+              await appendJsonl(path.join(runDir, 'decisions.jsonl'), {
+                chunkId: chunk.id,
+                ...decision,
+                effectiveDecision: 'reject',
+                application: 'approval_failed_then_rejected',
+                applicationError,
+              })
+              status('reviewer.applied', { sandbox, decisionNumber, decision: 'reject_after_approval_failure' })
+            } catch (fallbackError) {
+              const fallbackApplicationError = errorText(fallbackError)
+              await appendJsonl(path.join(runDir, 'decisions.jsonl'), {
+                chunkId: chunk.id,
+                ...decision,
+                effectiveDecision: 'pending',
+                application: 'failed',
+                applicationError,
+                fallbackApplicationError,
+              })
+              await appendJsonl(path.join(runDir, 'reviewer-errors.jsonl'), {
+                event: 'fallback_rejection_failed',
+                chunkId: chunk.id,
+                decisionNumber,
+                error: fallbackApplicationError,
+              })
+              status('reviewer.apply_failed', { sandbox, decisionNumber, decision: 'fallback_reject', error: fallbackApplicationError })
+            }
+          }
         } else {
-          await client.raw.rejectDraftChunk({ name: sandbox, chunkId: chunk.id, workspace, reason: decision.reason })
+          try {
+            await client.raw.rejectDraftChunk({ name: sandbox, chunkId: chunk.id, workspace, reason: decision.reason })
+            await appendJsonl(path.join(runDir, 'decisions.jsonl'), {
+              chunkId: chunk.id,
+              ...decision,
+              effectiveDecision: 'reject',
+              application: 'applied',
+            })
+            status('reviewer.applied', { sandbox, decisionNumber, decision: 'reject' })
+          } catch (error) {
+            const applicationError = errorText(error)
+            await appendJsonl(path.join(runDir, 'decisions.jsonl'), {
+              chunkId: chunk.id,
+              ...decision,
+              effectiveDecision: 'pending',
+              application: 'failed',
+              applicationError,
+            })
+            await appendJsonl(path.join(runDir, 'reviewer-errors.jsonl'), {
+              event: 'rejection_apply_failed',
+              chunkId: chunk.id,
+              decisionNumber,
+              error: applicationError,
+            })
+            status('reviewer.apply_failed', { sandbox, decisionNumber, decision: 'reject', error: applicationError })
+          }
         }
       }
     }

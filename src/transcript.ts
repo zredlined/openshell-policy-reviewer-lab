@@ -115,11 +115,21 @@ export async function renderTranscript(runDir: string): Promise<string> {
   for (const [index, proposalFile] of proposalFiles.entries()) {
     const packet = await optionalJson(path.join(runDir, proposalFile)) ?? {}
     const proposal = (packet.proposal ?? {}) as Record<string, unknown>
-    const decision = decisions[index]
+    const chunkId = String(proposal.id ?? '')
+    const matchingDecisions = decisions.filter((item) => String(item.chunkId ?? '') === chunkId)
+    const decision = matchingDecisions.at(-1) ?? decisions[index]
     lines.push(`### Request ${index + 1} — ${String(proposal.ruleName ?? proposal.rule_name ?? 'unnamed rule')}`, '')
     for (const summary of proposalSummary(packet)) lines.push(summary, '')
     if (decision) {
-      lines.push(`Reviewer: ${String(decision.decision ?? 'unknown').toUpperCase()}`, '', `Rationale: ${String(decision.reason ?? '')}`, '')
+      lines.push(
+        `Reviewer model decision: ${String(decision.decision ?? 'unknown').toUpperCase()}`,
+        '',
+        `Gateway result: ${String(decision.application ?? 'unknown')} (effective decision: ${String(decision.effectiveDecision ?? 'unknown')})`,
+        '',
+        `Rationale: ${String(decision.reason ?? '')}`,
+        '',
+      )
+      if (decision.applicationError) lines.push(`Application error: ${String(decision.applicationError)}`, '')
     } else {
       lines.push('Reviewer: no recorded decision', '')
     }
@@ -130,6 +140,8 @@ export async function renderTranscript(runDir: string): Promise<string> {
   lines.push('- `proposal-NNN.json` — exact sanitized request packet shown to the reviewer')
   lines.push('- `reviewer-NNN.response.json` — NVIDIA Responses output and token accounting')
   lines.push('- `decisions.jsonl` — reviewer approval/rejection ledger')
+  lines.push('- `reviewer-errors.jsonl` — gateway decision-application failures, when present')
+  lines.push('- `oracle.jsonl` — sampled observations of the assigned GitHub target')
   lines.push('- `openshell-logs.json` — enforcement and policy events')
   lines.push('', 'The transcript contains observable summaries and rationales, not hidden chain-of-thought.', '')
   return lines.join('\n')

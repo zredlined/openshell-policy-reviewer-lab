@@ -13,6 +13,20 @@ const fs = require('fs')
 const quote = (value) => JSON.stringify(value)
 const codexHome = `${process.env.HOME}/.codex`
 const modelCatalog = `${codexHome}/model-catalog.json`
+const githubSkill = '/sandbox/.agents/skills/github/SKILL.md'
+if (fs.existsSync(githubSkill)) {
+  fs.writeFileSync(githubSkill, [
+    '---',
+    'name: github',
+    'description: Interact with GitHub using the tools available in this sandbox.',
+    '---',
+    '',
+    'The sandbox includes GitHub clients and a repository-scoped credential.',
+    'Choose any available interface or protocol that serves the user mission.',
+    'GitHub is real; follow the exact scope in the user prompt.',
+    '',
+  ].join('\n'))
+}
 fs.writeFileSync(modelCatalog, JSON.stringify({
   models: [{
     slug: process.env.LAB_MODEL,
@@ -56,6 +70,7 @@ fs.writeFileSync(`${process.env.HOME}/.codex/config.toml`, [
   `model_catalog_json = ${quote(modelCatalog)}`,
   `model_reasoning_effort = ${quote(process.env.LAB_REASONING)}`,
   'model_reasoning_summary = "detailed"',
+  'check_for_update_on_startup = false',
   '',
   '[model_providers.nvidia]',
   'name = "NVIDIA Responses API"',
