@@ -4,19 +4,22 @@ import { mkdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { isDeepStrictEqual } from 'node:util'
-import { integer, required, writeJson } from './common.js'
+import { delay, integer, required, writeJson } from './common.js'
 import { createGithubBranch, getGithubRepositoryState } from './github.js'
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 
 interface CampaignResult {
   runId: string
+  attemptIndex?: number
+  logicalRun?: number
   exitCode: number | null
   runDir?: string
   compromised?: boolean
   requiresAdjudication?: boolean
   validRun?: boolean
   invalidReasons?: string[]
+  estimatedCostUsd?: number
   error?: string
 }
 
@@ -72,6 +75,7 @@ async function runCampaign(plan: CampaignPlan): Promise<CampaignResult> {
           validRun?: boolean
           invalidReasons?: string[]
           requiresAdjudication?: boolean
+          usage?: { estimatedCostUsd?: number }
         }
         resolve({
           runId,
@@ -81,6 +85,7 @@ async function runCampaign(plan: CampaignPlan): Promise<CampaignResult> {
           validRun: outcome.validRun === true,
           invalidReasons: outcome.invalidReasons,
           requiresAdjudication: outcome.requiresAdjudication === true,
+          estimatedCostUsd: outcome.usage?.estimatedCostUsd,
           ...(exitCode === 0 ? {} : { error: stderr.trim() || `campaign exited ${exitCode}` }),
         })
       } catch (error) {
@@ -94,6 +99,12 @@ async function main(): Promise<void> {
   const startedAt = new Date().toISOString()
   const runs = integer('LAB_RUNS', 10)
   const concurrency = Math.min(integer('LAB_CONCURRENCY', 2), runs)
+  const maxAttempts = process.env.LAB_MAX_ATTEMPTS
+    ? integer('LAB_MAX_ATTEMPTS', runs)
+    : runs + Math.max(10, Math.ceil(runs / 2))
+  if (maxAttempts < runs) throw new Error('LAB_MAX_ATTEMPTS must be at least LAB_RUNS')
+  const retryDelaySeconds = integer('LAB_RETRY_DELAY_SECONDS', 10)
+  const rateLimitCooldownSeconds = integer('LAB_RATE_LIMIT_COOLDOWN_SECONDS', 300)
   const owner = required('LAB_GITHUB_OWNER')
   const repo = required('LAB_GITHUB_REPO')
   const githubToken = required('LAB_GITHUB_TOKEN')
@@ -101,13 +112,13 @@ async function main(): Promise<void> {
   const summaryDir = path.resolve(process.env.LAB_RUNS_DIR ?? path.join(root, 'runs'))
   await mkdir(summaryDir, { recursive: true })
   const prefix = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)
-  const plans: CampaignPlan[] = Array.from({ length: runs }, (_item, index) => ({
+  const plans: CampaignPlan[] = Array.from({ length: maxAttempts }, (_item, index) => ({
     runId: `${prefix}-${String(index + 1).padStart(4, '0')}-${randomBytes(3).toString('hex')}`,
     branch: `work/${randomBytes(10).toString('hex')}`,
     target: `artifacts/${randomBytes(16).toString('hex')}.txt`,
   }))
   const repositoryStateBeforeSetup = await getGithubRepositoryState(githubToken, owner, repo)
-  process.stdout.write(`preparing ${runs} isolated branches\n`)
+  process.stdout.write(`preparing ${maxAttempts} isolated branches for up to ${maxAttempts} attempts\n`)
   for (const plan of plans) {
     await createGithubBranch(githubToken, owner, repo, plan.branch, sourceBranch)
   }
@@ -119,30 +130,56 @@ async function main(): Promise<void> {
     repo,
     sourceBranch,
     runs,
+    targetValidRuns: runs,
+    maxAttempts,
     concurrency,
+    retryDelaySeconds,
+    rateLimitCooldownSeconds,
     repositoryStateBeforeSetup,
     initialRepositoryState,
     plans,
   })
   process.stdout.write(`${planFile}\n`)
-  const results: CampaignResult[] = new Array(runs)
-  let next = 0
+  const results: CampaignResult[] = []
+  const acceptedResults: CampaignResult[] = new Array(runs)
+  let nextAttempt = 0
+  let nextLogicalRun = 0
 
   await Promise.all(Array.from({ length: concurrency }, async () => {
     while (true) {
-      const index = next++
-      if (index >= runs) return
-      process.stdout.write(`starting ${index + 1}/${runs}\n`)
-      const plan = plans[index]
-      if (!plan) return
-      results[index] = await runCampaign(plan)
-      process.stdout.write(`finished ${index + 1}/${runs}: ${JSON.stringify(results[index])}\n`)
+      const logicalRun = nextLogicalRun++
+      if (logicalRun >= runs) return
+      while (true) {
+        const attemptIndex = nextAttempt++
+        const plan = plans[attemptIndex]
+        if (!plan) return
+        process.stdout.write(`starting logical run ${logicalRun + 1}/${runs}, attempt ${attemptIndex + 1}/${maxAttempts}\n`)
+        const result = {
+          ...await runCampaign(plan),
+          logicalRun: logicalRun + 1,
+          attemptIndex: attemptIndex + 1,
+        }
+        results[attemptIndex] = result
+        process.stdout.write(`finished logical run ${logicalRun + 1}/${runs}, attempt ${attemptIndex + 1}/${maxAttempts}: ${JSON.stringify(result)}\n`)
+        if (result.validRun) {
+          acceptedResults[logicalRun] = result
+          break
+        }
+        const rateLimited = result.invalidReasons?.some((reason) => reason.includes('model_backoff') || reason === 'reviewer_model_failure') ?? false
+        const cooldownSeconds = rateLimited ? rateLimitCooldownSeconds : retryDelaySeconds
+        process.stdout.write(`excluding attempt ${attemptIndex + 1}; retrying logical run ${logicalRun + 1} after ${cooldownSeconds}s\n`)
+        await delay(cooldownSeconds * 1000)
+      }
     }
   }))
 
+  const completedResults = results.filter((result): result is CampaignResult => Boolean(result))
+  const completedAcceptedResults = acceptedResults.filter((result): result is CampaignResult => Boolean(result))
   const finalRepositoryState = await getGithubRepositoryState(githubToken, owner, repo)
   const globalRepositoryMutationObserved = !isDeepStrictEqual(initialRepositoryState, finalRepositoryState)
-  const compromises = results.filter((result) => result.compromised).length
+  const compromises = completedAcceptedResults.filter((result) => result.compromised).length
+  const estimatedCostUsd = completedResults.reduce((sum, result) => sum + (result.estimatedCostUsd ?? 0), 0)
+  const targetReached = completedAcceptedResults.length === runs
   const summary = {
     startedAt,
     finishedAt: new Date().toISOString(),
@@ -150,25 +187,33 @@ async function main(): Promise<void> {
     repo,
     sourceBranch,
     runs,
+    targetValidRuns: runs,
+    maxAttempts,
     concurrency,
+    targetReached,
+    attempts: completedResults.length,
+    excludedInvalidAttempts: completedResults.length - completedAcceptedResults.length,
     globalRepositoryMutationObserved,
     initialRepositoryState,
     finalRepositoryState,
     compromises,
     securityFailureObserved: globalRepositoryMutationObserved || compromises > 0,
-    validRuns: results.filter((result) => result.validRun).length,
-    invalidRuns: results.filter((result) => !result.validRun).length,
-    requiresAdjudicationRuns: results.filter((result) => result.requiresAdjudication).length,
+    validRuns: completedAcceptedResults.length,
+    invalidRuns: completedResults.filter((result) => !result.validRun).length,
+    requiresAdjudicationRuns: completedAcceptedResults.filter((result) => result.requiresAdjudication).length,
     cleanValidRuns: globalRepositoryMutationObserved
       ? 0
-      : results.filter((result) => result.validRun && !result.compromised && !result.requiresAdjudication).length,
-    failures: results.filter((result) => result.error).length,
-    results,
+      : completedAcceptedResults.filter((result) => !result.compromised && !result.requiresAdjudication).length,
+    failures: completedResults.filter((result) => result.error).length,
+    estimatedCostUsd,
+    estimatedAcceptedRunsCostUsd: completedAcceptedResults.reduce((sum, result) => sum + (result.estimatedCostUsd ?? 0), 0),
+    acceptedResults: completedAcceptedResults,
+    results: completedResults,
   }
   const file = path.join(summaryDir, `scale-${prefix}-summary.json`)
   await writeJson(file, summary)
   process.stdout.write(`${file}\n`)
-  if (summary.failures > 0 || summary.invalidRuns > 0) process.exitCode = 1
+  if (!targetReached) process.exitCode = 1
 }
 
 main().catch((error) => {

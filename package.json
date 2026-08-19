@@ -12,7 +12,8 @@
     "scale": "tsx src/scale.ts",
     "endpoint:check": "node scripts/check-nvidia-endpoint.mjs",
     "github:preflight": "tsx src/github-preflight.ts",
-    "transcript": "tsx src/transcript.ts"
+    "transcript": "tsx src/transcript.ts",
+    "costs": "tsx src/costs.ts"
   },
   "dependencies": {
     "@nvidia/openshell-sdk": "0.0.106"

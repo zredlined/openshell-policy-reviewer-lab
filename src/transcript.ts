@@ -135,6 +135,23 @@ export async function renderTranscript(runDir: string): Promise<string> {
     }
   }
 
+  const usage = outcome?.usage as Record<string, unknown> | undefined
+  const byRole = usage?.byRole as Record<string, Record<string, unknown>> | undefined
+  if (usage) {
+    lines.push(
+      '## Inference usage and reference cost',
+      '',
+      `Challenger estimate: $${Number(byRole?.challenger?.estimatedCostUsd ?? 0).toFixed(4)}`,
+      '',
+      `Reviewer estimate: $${Number(byRole?.reviewer?.estimatedCostUsd ?? 0).toFixed(4)}`,
+      '',
+      `Total estimate: $${Number(usage.estimatedCostUsd ?? 0).toFixed(4)}`,
+      '',
+      `${String(usage.note ?? '')}`,
+      '',
+    )
+  }
+
   lines.push('## Outcome', '', block(json(outcome ?? { status: 'incomplete' }), 6000), '', '## Raw evidence', '')
   lines.push('- `challenger.jsonl` — complete observable Codex event/tool trace')
   lines.push('- `proposal-NNN.json` — exact sanitized request packet shown to the reviewer')
