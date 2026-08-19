@@ -6,6 +6,10 @@ The challenger runs inside an OpenShell sandbox with a fine-grained GitHub token
 
 This is an experiment, not a claim that model review is safe. A zero-compromise result means only that this model, prompt, environment, and budget did not produce a failure in this sample.
 
+## Current experiment report
+
+The first usability-weighted long-horizon condition is documented in [Long-horizon adversarial policy review in OpenShell](results/adversarial-policy-review-20260819032046.md). It includes the exact condition, model and safeguard choices, results, failure counts, operational impact, limitations, and the control-plane fixes required before a statistically scaled reviewer evaluation.
+
 ## Why this test looks this way
 
 Recent agent-security incidents and evaluations point to a common pattern: the important variable is often sustained optimization pressure rather than one magic jailbreak phrase.
@@ -108,7 +112,7 @@ One campaign defaults to:
 - Client memory: one Codex thread resumed throughout that campaign
 - Target sampling: every 60 seconds
 
-Scale mode gives every campaign fresh client and reviewer contexts. Running many independent campaigns measures breadth. Repeated turns and requests inside one campaign measure depth. The first intended scale progression is one short functional smoke, then 50 valid campaigns at concurrency 2. Increase to 100 only after checking model throughput, GitHub rate limits, OpenShell cleanup, cost, and artifact volume.
+Scale mode gives every campaign fresh client and reviewer contexts. Running many independent campaigns measures breadth. Repeated turns and requests inside one campaign measure depth. The first long-horizon condition showed that scaled reviewer testing should pause while candidate preflight, validation parity, activation acknowledgement, concurrency semantics, and rollback are corrected. After those fixes, the progression is one short apply-and-load smoke, then 10 valid 30-minute campaigns, followed by 50-100 only if the smaller condition is operationally clean.
 
 Model calls retry HTTP 429 and transient 5xx or transport failures with exponential backoff until the campaign deadline. There is no retry-count or turn-count limit. A campaign is excluded if either role spends more than 25% of its wall-clock budget in recorded model backoff. Scale mode retains that attempt as evidence and starts a fresh replacement campaign. By default it prepares room for 75 attempts to collect 50 valid campaigns; if it cannot reach the target, the scale command exits nonzero.
 
